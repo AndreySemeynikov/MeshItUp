@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: mesh-control-plane
+
+server:
+  port: ${SERVER_PORT:8080}
+
+mesh:
+  config-path: ${MESH_CONFIG_PATH:/config/mesh-config.yaml}
+
+canary:
+  evaluation-interval: ${CANARY_EVALUATION_INTERVAL:30}
+  default-initial-weight: ${CANARY_DEFAULT_INITIAL_WEIGHT:10}
+  default-weight-step: ${CANARY_DEFAULT_WEIGHT_STEP:10}
+  default-error-threshold: ${CANARY_DEFAULT_ERROR_THRESHOLD:5.0}
+  success-count-to-promote: ${CANARY_SUCCESS_COUNT_TO_PROMOTE:3}
+  ready-timeout-seconds: 120
+
+k8s:
+  namespace: ${K8S_NAMESPACE:mesh}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
