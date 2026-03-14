@@ -315,5 +315,17 @@ public class KubernetesDeployer {
     return false;
   }
 
-
+  public int getStableReplicas(String serviceId) {
+    try {
+      V1Deployment d = appsV1Api
+              .readNamespacedDeployment(serviceId, k8sProperties.namespace())
+              .execute();
+      Integer replicas = d.getSpec().getReplicas();
+      return replicas != null ? replicas : 1;
+    } catch (ApiException e) {
+      log.warn("Cannot read stable replicas for {}, defaulting to 1: {}",
+              serviceId, e.getMessage());
+      return 1;
+    }
+  }
 }
