@@ -26,10 +26,10 @@ public class CanaryManager {
   private final CanaryState canaryState = new CanaryState();
 
   public CanaryManager(
-      ConfigStore configStore,
-      KubernetesDeployer k8sDeployer,
-      CanaryProperties canaryProperties,
-      K8sProperties k8sProperties) {
+          ConfigStore configStore,
+          KubernetesDeployer k8sDeployer,
+          CanaryProperties canaryProperties,
+          K8sProperties k8sProperties) {
     this.configStore = configStore;
     this.k8sDeployer = k8sDeployer;
     this.canaryProperties = canaryProperties;
@@ -40,7 +40,7 @@ public class CanaryManager {
   public synchronized CanaryState start(CanaryStartRequest request) {
     if (canaryState.getStatus() == Status.IN_PROGRESS) {
       throw new CanaryConflictException(
-          "Canary already in progress for service: " + canaryState.getServiceId());
+              "Canary already in progress for service: " + canaryState.getServiceId());
     }
 
     String serviceId = request.serviceId();
@@ -49,15 +49,24 @@ public class CanaryManager {
     }
 
     int initialWeight =
-        request.initialWeight() != null
-            ? request.initialWeight()
-            : canaryProperties.defaultInitialWeight();
+            request.initialWeight() != null
+                    ? request.initialWeight()
+                    : canaryProperties.defaultInitialWeight();
     int weightStep =
-        request.weightStep() != null ? request.weightStep() : canaryProperties.defaultWeightStep();
+            request.weightStep() != null ? request.weightStep() : canaryProperties.defaultWeightStep();
     double errorThreshold =
-        request.errorThreshold() != null
-            ? request.errorThreshold()
-            : canaryProperties.defaultErrorThreshold();
+            request.errorThreshold() != null
+                    ? request.errorThreshold()
+                    : canaryProperties.defaultErrorThreshold();
+
+    // Рассчитываем целевой вес, до которого разгоняется canary перед promote.
+    // Одна canary-пода должна нести не больше трафика, чем одна stable-пода.
+    int stableReplicas = k8sDeployer.getStableReplicas(serviceId);
+    int targetWeight = calculateTargetWeight(stableReplicas, initialWeight);
+
+    log.info(
+            "Canary sizing for {}: stable has {} replicas → target weight {}% (initial {}%, step {}%)",
+            serviceId, stableReplicas, targetWeight, initialWeight, weightStep);
 
     // Initialize canary state
     canaryState.setServiceId(serviceId);
@@ -65,12 +74,14 @@ public class CanaryManager {
     canaryState.setCanaryImage(request.canaryImage());
     canaryState.setCanaryEnv(request.canaryEnv());
     canaryState.setCanaryVersion(
-        request.canaryEnv() != null
-            ? request.canaryEnv().getOrDefault("VERSION", "canary")
-            : "canary");
+            request.canaryEnv() != null
+                    ? request.canaryEnv().getOrDefault("VERSION", "canary")
+                    : "canary");
     canaryState.setStableVersion("stable");
     canaryState.setCurrentWeight(initialWeight);
     canaryState.setWeightStep(weightStep);
+    canaryState.setTargetWeight(targetWeight);
+    canaryState.setStableReplicasAtStart(stableReplicas);
     canaryState.setErrorThreshold(errorThreshold);
     canaryState.setConsecutiveSuccessCount(0);
     canaryState.setStartedAt(Instant.now());
@@ -82,26 +93,26 @@ public class CanaryManager {
       k8sDeployer.createCanaryDeployment(serviceId, request.canaryImage(), request.canaryEnv());
       k8sDeployer.createCanaryService(serviceId);
 
-//      todo вынести таймаут в конфиг
       // Wait for canary pod to be ready
-      boolean ready = k8sDeployer.waitForCanaryReady(serviceId, 80);
+      boolean ready =
+              k8sDeployer.waitForCanaryReady(serviceId, canaryProperties.readyTimeoutSeconds());
       if (!ready) {
-        log.warn("Canary pod not ready within timeout, proceeding anyway for {}", serviceId);
+        throw new RuntimeException(
+                "Canary pod for " + serviceId + " did not become ready within "
+                        + canaryProperties.readyTimeoutSeconds() + "s");
       }
 
       // Update routes: add canary destination
       String namespace = k8sProperties.namespace();
       String canaryHost = serviceId + "-canary." + namespace + ".svc.cluster.local";
       Destination canaryDest =
-          new Destination(serviceId, canaryHost, 8080, "canary", initialWeight);
+              new Destination(serviceId, canaryHost, 8080, "canary", initialWeight);
 
       configStore.addCanaryDestination(serviceId, canaryDest, 100 - initialWeight);
 
       log.info(
-          "Canary started for {}: image={}, initialWeight={}",
-          serviceId,
-          request.canaryImage(),
-          initialWeight);
+              "Canary started for {}: image={}, initialWeight={}%, targetWeight={}%",
+              serviceId, request.canaryImage(), initialWeight, targetWeight);
 
       return canaryState;
 
@@ -123,7 +134,7 @@ public class CanaryManager {
   public synchronized CanaryState promote() {
     if (canaryState.getStatus() != Status.IN_PROGRESS) {
       throw new CanaryConflictException(
-          "No active canary to promote. Current status: " + canaryState.getStatus());
+              "No active canary to promote. Current status: " + canaryState.getStatus());
     }
 
     String serviceId = canaryState.getServiceId();
@@ -132,7 +143,7 @@ public class CanaryManager {
     try {
       // Patch stable deployment with canary image
       k8sDeployer.patchStableDeployment(
-          serviceId, canaryState.getCanaryImage(), canaryState.getCanaryEnv());
+              serviceId, canaryState.getCanaryImage(), canaryState.getCanaryEnv());
 
       // Delete canary resources
       k8sDeployer.deleteCanaryDeployment(serviceId);
@@ -156,7 +167,7 @@ public class CanaryManager {
   public synchronized CanaryState rollback() {
     if (canaryState.getStatus() != Status.IN_PROGRESS) {
       throw new CanaryConflictException(
-          "No active canary to rollback. Current status: " + canaryState.getStatus());
+              "No active canary to rollback. Current status: " + canaryState.getStatus());
     }
 
     String serviceId = canaryState.getServiceId();
@@ -180,22 +191,55 @@ public class CanaryManager {
   public synchronized void increaseWeight() {
     int oldWeight = canaryState.getCurrentWeight();
     int newWeight = oldWeight + canaryState.getWeightStep();
+    int targetWeight = canaryState.getTargetWeight();
 
-    if (newWeight >= 100) {
-      log.info("Canary weight reached 100% for {}. Promoting.", canaryState.getServiceId());
-      promote();
-    } else {
-      canaryState.setCurrentWeight(newWeight);
-      configStore.updateRouteWeights(canaryState.getServiceId(), 100 - newWeight, newWeight);
+    if (newWeight >= targetWeight) {
       log.info(
-          "Canary weight increased: {} {}% → {}%",
-          canaryState.getServiceId(), oldWeight, newWeight);
+              "Canary weight reached target {}% for {} (would be {}%). Promoting.",
+              targetWeight, canaryState.getServiceId(), newWeight);
+      promote();
+      return;
     }
+
+    canaryState.setCurrentWeight(newWeight);
+    configStore.updateRouteWeights(canaryState.getServiceId(), 100 - newWeight, newWeight);
+    log.info(
+            "Canary weight increased: {} {}% → {}% (target {}%)",
+            canaryState.getServiceId(), oldWeight, newWeight, targetWeight);
   }
 
   /** Get the current canary state. */
   public CanaryState getState() {
     return canaryState;
+  }
+
+  // --- Private helpers ---
+
+  /**
+   * Рассчитывает целевой вес, до которого разгоняется canary перед promote.
+   *
+   * <p>Логика: одна canary-пода должна обрабатывать не больше трафика, чем одна stable-пода.
+   * Если stable-подов N, то каждая несёт ~100/N процентов трафика. До этого же значения и
+   * разгоняем canary.
+   *
+   * <p>Примеры:
+   * <ul>
+   *   <li>stable = 1  → target = 100% (canary заменит единственную поду)
+   *   <li>stable = 2  → target = 50%
+   *   <li>stable = 5  → target = 20%
+   *   <li>stable = 10 → target = 10%
+   * </ul>
+   *
+   * <p>Если initialWeight >= расчётного target (например, юзер запустил canary с initialWeight=50
+   * при stable=10), возвращаем initialWeight — чтобы первый же успешный evaluation привёл к
+   * promote.
+   */
+  private int calculateTargetWeight(int stableReplicas, int initialWeight) {
+    if (stableReplicas <= 0) {
+      return 100;
+    }
+    int target = 100 / stableReplicas;
+    return Math.max(initialWeight, Math.min(100, target));
   }
 
   // --- Custom exceptions ---
