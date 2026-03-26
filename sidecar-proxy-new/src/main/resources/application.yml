@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: mesh-sidecar
+
+server:
+  port: ${PROXY_PORT:15001}
+
+management:
+  server:
+    port: ${METRICS_PORT:15002}
+  endpoints:
+    web:
+      exposure:
+        include: prometheus,health
+  metrics:
+    tags:
+      application: mesh-sidecar
+      service: ${MESH_SERVICE_ID:unknown}
+
+mesh:
+  service-id: ${MESH_SERVICE_ID}
+  control-plane-url: ${MESH_CONTROL_PLANE_URL}
+  proxy-port: ${PROXY_PORT:15001}
+  inbound-port: ${INBOUND_PORT:15006}
+  local-service-port: ${LOCAL_SERVICE_PORT:8080}
+  metrics-port: ${METRICS_PORT:15002}
+  config-refresh-interval: ${CONFIG_REFRESH_INTERVAL:10}
+  metrics-report-interval: ${METRICS_REPORT_INTERVAL:30}
+
+logging:
+  level:
+    com.mesh.sidecar: INFO
+    com.mesh.sidecar.sync: DEBUG
