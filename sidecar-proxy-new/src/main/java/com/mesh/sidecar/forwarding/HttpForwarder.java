@@ -26,6 +26,12 @@ import java.util.UUID;
  * Пересылает HTTP-запрос к целевому destination.
  * Используется и для outbound (к другим сервисам), и для inbound (к localhost).
  * Реализует retry-логику согласно RetryPolicy.
+ *
+ * Важно: sidecar — это прокси. HTTP-ошибки (4xx/5xx) от бизнес-сервиса
+ * не являются ошибками sidecar'а — это валидный ответ, который надо
+ * прозрачно пропустить вызывающему. Поэтому RestClient настроен так,
+ * чтобы НЕ бросать исключения на non-2xx статусах; статус и тело
+ * извлекаются из ResponseEntity.
  */
 @Component
 public class HttpForwarder {
@@ -92,12 +98,7 @@ public class HttpForwarder {
         long startTime = System.nanoTime();
 
         try {
-            ResponseEntity<byte[]> response = restClient.method(method)
-                    .uri(targetUrl)
-                    .headers(h -> h.addAll(requestHeaders))
-                    .body(requestBody)
-                    .retrieve()
-                    .toEntity(byte[].class);
+            ResponseEntity<byte[]> response = execute(method, targetUrl, requestHeaders, requestBody);
 
             long durationMs = (System.nanoTime() - startTime) / 1_000_000;
             HttpHeaders responseHeaders = filterResponseHeaders(response.getHeaders());
@@ -115,7 +116,8 @@ public class HttpForwarder {
             long durationMs = (System.nanoTime() - startTime) / 1_000_000;
             log.error("Inbound forward to localhost:{} failed: {}",
                     properties.getLocalServicePort(), e.getMessage());
-            return new ForwardResult(502, new HttpHeaders(), null, durationMs,
+            byte[] errorBody = "{\"error\":\"upstream connection error\"}".getBytes();
+            return new ForwardResult(502, new HttpHeaders(), errorBody, durationMs,
                     0, "localhost", "local");
         }
     }
@@ -147,12 +149,7 @@ public class HttpForwarder {
             }
 
             try {
-                ResponseEntity<byte[]> response = restClient.method(method)
-                        .uri(targetUrl)
-                        .headers(h -> h.addAll(requestHeaders))
-                        .body(requestBody)
-                        .retrieve()
-                        .toEntity(byte[].class);
+                ResponseEntity<byte[]> response = execute(method, targetUrl, requestHeaders, requestBody);
 
                 long durationMs = (System.nanoTime() - startTime) / 1_000_000;
                 int statusCode = response.getStatusCode().value();
@@ -168,12 +165,13 @@ public class HttpForwarder {
 
             } catch (ResourceAccessException e) {
                 long durationMs = (System.nanoTime() - startTime) / 1_000_000;
-                lastResult = new ForwardResult(502, new HttpHeaders(), null, durationMs,
+                byte[] errorBody = "{\"error\":\"upstream connection error\"}".getBytes();
+                lastResult = new ForwardResult(502, new HttpHeaders(), errorBody, durationMs,
                         attempt - 1, destination.host(), destination.version());
 
                 if (attempt >= maxAttempts) {
-                    log.error("All retries exhausted for {} {} → {}",
-                            method, originalRequest.getRequestURI(), destination.host());
+                    log.error("All retries exhausted for {} {} → {}: {}",
+                            method, originalRequest.getRequestURI(), destination.host(), e.getMessage());
                     return lastResult;
                 }
             }
@@ -182,6 +180,29 @@ public class HttpForwarder {
         return lastResult != null ? lastResult
                 : new ForwardResult(502, new HttpHeaders(), null, 0, attempt - 1,
                 destination.host(), destination.version());
+    }
+
+    /**
+     * Общий helper для HTTP-вызовов через RestClient.
+     *
+     * onStatus(any, no-op) отключает дефолтное поведение RestClient'а, при котором
+     * статусы 4xx/5xx превращаются в RestClientResponseException. Для прокси такой
+     * ответ — это не сбой, а нормальные данные от upstream'а, которые надо пропустить
+     * дальше с тем же кодом и телом.
+     *
+     * Бросается только ResourceAccessException при сетевых проблемах (connection
+     * refused, timeout и т.п.) — это реальный сбой инфраструктуры, его надо отличать
+     * от HTTP-ошибки бизнес-сервиса.
+     */
+    private ResponseEntity<byte[]> execute(HttpMethod method, String url,
+                                           HttpHeaders headers, byte[] body) {
+        return restClient.method(method)
+                .uri(url)
+                .headers(h -> h.addAll(headers))
+                .body(body)
+                .retrieve()
+                .onStatus(status -> true, (req, res) -> { /* не бросать на не-2xx */ })
+                .toEntity(byte[].class);
     }
 
     private String buildTargetUrl(HttpServletRequest request, Destination destination) {
