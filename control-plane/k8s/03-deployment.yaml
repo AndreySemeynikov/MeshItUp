@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mesh-control-plane
+  namespace: mesh
+  labels:
+    app: mesh-control-plane
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mesh-control-plane
+  template:
+    metadata:
+      labels:
+        app: mesh-control-plane
+    spec:
+      serviceAccountName: mesh-control-plane
+      containers:
+        - name: control-plane
+          image: mesh-control-plane:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: MESH_CONFIG_PATH
+              value: /config/mesh-config.yaml
+            - name: K8S_NAMESPACE
+              value: mesh
+          volumeMounts:
+            - name: mesh-config
+              mountPath: /config
+              readOnly: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: mesh-config
+          configMap:
+            name: mesh-config
+
