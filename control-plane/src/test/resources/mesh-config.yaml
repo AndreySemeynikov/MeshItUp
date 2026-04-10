@@ -1,0 +1,34 @@
+services:
+  - id: api-gateway
+    host: api-gateway.mesh.svc.cluster.local
+    port: 8080
+    healthPath: /health
+  - id: inventory-service
+    host: inventory-service.mesh.svc.cluster.local
+    port: 8080
+    healthPath: /health
+
+routes:
+  - source: inventory-service
+    pathPattern: /api/**
+    destinations:
+      - host: localhost
+        port: 8080
+        version: stable
+        weight: 100
+  - source: api-gateway
+    pathPattern: /api/inventory/**
+    destinations:
+      - serviceId: inventory-service
+        host: inventory-service.mesh.svc.cluster.local
+        port: 8080
+        version: stable
+        weight: 100
+
+retryPolicy:
+  maxAttempts: 3
+  delayMs: 500
+  retriableStatusCodes:
+    - 502
+    - 503
+    - 504

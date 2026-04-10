@@ -169,4 +169,4 @@ This project demonstrates:
 
 **Coursework:** BSU Faculty of Applied Mathematics  
 **Subject:** Service Mesh: Capabilities and Implementation  
-**Year:** 2025
+**Year:** 2026

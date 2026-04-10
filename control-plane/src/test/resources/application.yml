@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: mesh-control-plane-test
+  main:
+    allow-bean-definition-overriding: true
+
+server:
+  port: 0
+
+mesh:
+  config-path: src/test/resources/mesh-config.yaml
+
+canary:
+  evaluation-interval: 30
+  default-initial-weight: 10
+  default-weight-step: 10
+  default-error-threshold: 5.0
+  success-count-to-promote: 3
+
+k8s:
+  namespace: mesh
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

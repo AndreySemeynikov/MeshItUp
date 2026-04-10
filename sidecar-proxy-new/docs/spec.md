@@ -185,7 +185,7 @@ public record RetryPolicy(
 {
   "proxyId": "api-gateway-sidecar",
   "serviceId": "api-gateway",
-  "timestamp": "2025-01-15T12:00:30Z",
+  "timestamp": "2026-01-15T12:00:30Z",
   "windowSeconds": 30,
   "entries": [
     {

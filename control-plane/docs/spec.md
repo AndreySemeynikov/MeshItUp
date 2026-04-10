@@ -745,7 +745,7 @@ public class KubernetesClientConfig {
 {
   "proxyId": "api-gateway-sidecar",
   "serviceId": "api-gateway",
-  "timestamp": "2025-01-15T12:00:30Z",
+  "timestamp": "2026-01-15T12:00:30Z",
   "windowSeconds": 30,
   "entries": [
     {
@@ -802,7 +802,7 @@ public class KubernetesClientConfig {
   "serviceId": "inventory-service",
   "canaryVersion": "v2",
   "currentWeight": 10,
-  "startedAt": "2025-01-15T12:00:00Z"
+  "startedAt": "2026-01-15T12:00:00Z"
 }
 ```
 
@@ -826,8 +826,8 @@ public class KubernetesClientConfig {
   "weightStep": 10,
   "errorThreshold": 5.0,
   "consecutiveSuccessCount": 2,
-  "startedAt": "2025-01-15T12:00:00Z",
-  "lastEvaluationAt": "2025-01-15T12:03:00Z",
+  "startedAt": "2026-01-15T12:00:00Z",
+  "lastEvaluationAt": "2026-01-15T12:03:00Z",
   "lastEvaluationResult": "OK: canary error rate 1.2% <= threshold 5.0%"
 }
 ```
