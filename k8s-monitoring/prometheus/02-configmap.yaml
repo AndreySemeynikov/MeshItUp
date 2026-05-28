@@ -16,18 +16,15 @@ data:
             namespaces:
               names: ['mesh']
         relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+          # Оставляем только pod'ы с лейблом mesh=true
+          - source_labels: [__meta_kubernetes_pod_label_mesh]
             action: keep
             regex: 'true'
-          - source_labels: [__meta_kubernetes_pod_ip, __meta_kubernetes_pod_annotation_prometheus_io_port]
-            action: replace
-            target_label: __address__
-            regex: (.+);(.+)
-            replacement: ${1}:${2}
-          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
-            action: replace
-            target_label: __metrics_path__
-            regex: (.+)
+          # Фильтруем по порту контейнера 15002 (metrics port)
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
+            action: keep
+            regex: '15002'
+          # Добавляем лейблы для метрик
           - source_labels: [__meta_kubernetes_pod_name]
             action: replace
             target_label: pod
@@ -37,3 +34,4 @@ data:
           - source_labels: [__meta_kubernetes_pod_label_version]
             action: replace
             target_label: version
+        metrics_path: /actuator/prometheus

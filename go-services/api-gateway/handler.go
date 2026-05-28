@@ -25,8 +25,9 @@ func NewGatewayHandler(orderServiceURL string) *GatewayHandler {
 func (g *GatewayHandler) ProxyToOrderService(w http.ResponseWriter, r *http.Request) {
 	// Идём через свой sidecar на localhost:15001
 	// Sidecar знает куда проксировать по заголовку X-Mesh-Destination
-	//targetURL := "http://localhost:15001" + r.URL.Path
-	targetURL := "http://localhost:8082" + r.URL.Path
+	targetURL := "http://localhost:15001" + r.URL.Path
+	// прямой путь, минуя сайдкар
+	//targetURL := "http://localhost:8082" + r.URL.Path
 
 	if r.URL.RawQuery != "" {
 		targetURL += "?" + r.URL.RawQuery
